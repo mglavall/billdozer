@@ -7,6 +7,7 @@ interface Expense {
     description: string;
     amount: number;
     payer_name: string;
+    split_among: string[] | null;
     created_at: string;
 }
 
@@ -25,6 +26,7 @@ export default function GroupView() {
     const { groupId } = useParams();
     const [group, setGroup] = useState<Group | null>(null);
     const [expenses, setExpenses] = useState<Expense[]>([]);
+    const [groupMembers, setGroupMembers] = useState<string[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [copied, setCopied] = useState(false);
@@ -53,6 +55,15 @@ export default function GroupView() {
 
                 if (expensesError) throw expensesError;
                 setExpenses(expensesData || []);
+
+                // Fetch group members
+                const { data: membersData, error: membersError } = await supabase
+                    .from("group_members")
+                    .select("name")
+                    .eq("group_id", groupId);
+
+                if (membersError) throw membersError;
+                setGroupMembers(membersData?.map(m => m.name) || []);
             } catch (err: any) {
                 console.error("Error fetching data:", err);
                 setError(err.message);
@@ -75,39 +86,53 @@ export default function GroupView() {
     if (!group) return <div className="p-8 text-center">Group not found</div>;
 
     const totalExpenses = expenses.reduce((sum, expense) => sum + expense.amount, 0);
-    const payers = Array.from(new Set(expenses.map(e => e.payer_name)));
-    const splitAmount = payers.length > 0 ? totalExpenses / payers.length : 0;
+
+    // Get all people involved (from members or inferred from expenses)
+    const allPeople = groupMembers.length > 0
+        ? groupMembers
+        : Array.from(new Set(expenses.map(e => e.payer_name)));
+
+    const splitAmount = allPeople.length > 0 ? totalExpenses / allPeople.length : 0;
 
     const calculateSettlements = (): Settlement[] => {
-        if (payers.length === 0) return [];
+        if (allPeople.length === 0) return [];
 
         const balances: Record<string, number> = {};
-        payers.forEach(payer => balances[payer] = 0);
+        allPeople.forEach(person => balances[person] = 0);
 
         expenses.forEach(expense => {
+            // Determine who splits this expense
+            const splitWith = expense.split_among && expense.split_among.length > 0
+                ? expense.split_among
+                : allPeople; // Default to everyone if not specified
+
+            const sharePerPerson = expense.amount / splitWith.length;
+
+            // Payer gets credited
             if (!balances[expense.payer_name]) balances[expense.payer_name] = 0;
             balances[expense.payer_name] += expense.amount;
-        });
 
-        // Subtract fair share
-        payers.forEach(payer => {
-            balances[payer] -= splitAmount;
+            // Each person in split_among gets debited
+            splitWith.forEach(person => {
+                if (!balances[person]) balances[person] = 0;
+                balances[person] -= sharePerPerson;
+            });
         });
 
         const debtors: { name: string; amount: number }[] = [];
         const creditors: { name: string; amount: number }[] = [];
 
         Object.entries(balances).forEach(([name, amount]) => {
-            if (amount < -0.01) debtors.push({ name, amount }); // Negative balance means they owe money
-            if (amount > 0.01) creditors.push({ name, amount }); // Positive balance means they are owed money
+            if (amount < -0.01) debtors.push({ name, amount });
+            if (amount > 0.01) creditors.push({ name, amount });
         });
 
         debtors.sort((a, b) => a.amount - b.amount);
         creditors.sort((a, b) => b.amount - a.amount);
 
         const settlements: Settlement[] = [];
-        let i = 0; // debtor index
-        let j = 0; // creditor index
+        let i = 0;
+        let j = 0;
 
         while (i < debtors.length && j < creditors.length) {
             const debtor = debtors[i];
@@ -163,13 +188,13 @@ export default function GroupView() {
                             <p className="text-sm text-blue-600 font-medium">Total Expenses</p>
                             <p className="text-2xl font-bold text-blue-900">{totalExpenses.toFixed(2)}€</p>
                         </div>
-                        {payers.length > 0 && (
+                        {allPeople.length > 0 && (
                             <div className="bg-green-50 p-4 rounded-lg">
                                 <p className="text-sm text-green-600 font-medium">Split per Person</p>
                                 <p className="text-2xl font-bold text-green-900">
                                     {splitAmount.toFixed(2)}€
                                     <span className="text-xs font-normal text-green-700 ml-1">
-                                        ({payers.length} people)
+                                        ({allPeople.length} people)
                                     </span>
                                 </p>
                             </div>
@@ -218,7 +243,12 @@ export default function GroupView() {
                                     <div className="flex justify-between items-start">
                                         <div>
                                             <p className="font-medium text-gray-900">{expense.description}</p>
-                                            <p className="text-sm text-gray-500">Paid by {expense.payer_name}</p>
+                                            <p className="text-sm text-gray-500">
+                                                Paid by {expense.payer_name}
+                                                {expense.split_among && expense.split_among.length > 0 && (
+                                                    <span className="text-gray-400"> • Split among {expense.split_among.length} {expense.split_among.length === 1 ? 'person' : 'people'}</span>
+                                                )}
+                                            </p>
                                         </div>
                                         <span className="font-bold text-gray-900">{expense.amount.toFixed(2)}€</span>
                                     </div>

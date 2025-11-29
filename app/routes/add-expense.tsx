@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useNavigate, Link } from "react-router";
 import { supabase } from "../supabase";
 
@@ -10,57 +10,109 @@ export default function AddExpense() {
     const [payerName, setPayerName] = useState("");
     const [loading, setLoading] = useState(false);
 
-    // New state for payer selection
-    const [existingPayers, setExistingPayers] = useState<string[]>([]);
+    // Fetch group members
+    const [groupMembers, setGroupMembers] = useState<string[]>([]);
+    const [loadingMembers, setLoadingMembers] = useState(true);
     const [isCustomPayer, setIsCustomPayer] = useState(false);
-    const [loadingPayers, setLoadingPayers] = useState(true);
 
-    // Fetch existing payers on mount
-    useState(() => {
-        async function fetchPayers() {
+    // Split among state
+    const [splitAmong, setSplitAmong] = useState<string[]>([]);
+
+    useEffect(() => {
+        async function fetchMembers() {
             if (!groupId) return;
+
             const { data, error } = await supabase
-                .from("expenses")
-                .select("payer_name")
+                .from("group_members")
+                .select("name")
                 .eq("group_id", groupId);
 
             if (!error && data) {
-                const uniquePayers = Array.from(new Set(data.map(d => d.payer_name))).sort();
-                setExistingPayers(uniquePayers);
-                // If we have payers, default to the first one? Or empty?
-                // Let's default to empty so they have to choose, or first one if convenient.
-                // If no payers, we must use custom input.
-                if (uniquePayers.length === 0) {
+                const names = data.map(m => m.name).sort();
+                setGroupMembers(names);
+                // Default: split among everyone
+                setSplitAmong(names);
+
+                if (names.length === 0) {
                     setIsCustomPayer(true);
                 }
             }
-            setLoadingPayers(false);
+            setLoadingMembers(false);
         }
-        fetchPayers();
-    });
+        fetchMembers();
+    }, [groupId]);
+
+    const toggleSplitMember = (name: string) => {
+        if (splitAmong.includes(name)) {
+            setSplitAmong(splitAmong.filter(n => n !== name));
+        } else {
+            setSplitAmong([...splitAmong, name]);
+        }
+    };
+
+    const selectAll = () => {
+        setSplitAmong([...groupMembers]);
+    };
+
+    const deselectAll = () => {
+        setSplitAmong([]);
+    };
+
+    const handleCustomPayerBlur = () => {
+        // When user finishes typing a new name, add it to members and split list
+        const trimmed = payerName.trim();
+        if (trimmed && !groupMembers.includes(trimmed)) {
+            const updatedMembers = [...groupMembers, trimmed].sort();
+            setGroupMembers(updatedMembers);
+            // Also add to split list if not already there
+            if (!splitAmong.includes(trimmed)) {
+                setSplitAmong([...splitAmong, trimmed]);
+            }
+        }
+    };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!groupId || !description || !amount || !payerName) return;
+        if (splitAmong.length === 0) {
+            alert("Please select at least one person to split the expense with.");
+            return;
+        }
 
         setLoading(true);
-        const { error } = await supabase
-            .from("expenses")
-            .insert([
-                {
-                    group_id: groupId,
-                    description,
-                    amount: parseFloat(amount),
-                    payer_name: payerName,
-                },
-            ]);
 
-        if (error) {
+        try {
+            // If this is a new member (not in groupMembers), add them to group_members
+            if (!groupMembers.includes(payerName)) {
+                const { error: memberError } = await supabase
+                    .from("group_members")
+                    .insert([{
+                        group_id: groupId,
+                        name: payerName
+                    }]);
+
+                if (memberError) throw memberError;
+            }
+
+            // Add the expense
+            const { error } = await supabase
+                .from("expenses")
+                .insert([
+                    {
+                        group_id: groupId,
+                        description,
+                        amount: parseFloat(amount),
+                        payer_name: payerName,
+                        split_among: splitAmong,
+                    },
+                ]);
+
+            if (error) throw error;
+            navigate(`/g/${groupId}`);
+        } catch (error: any) {
             console.error("Error adding expense:", error);
             alert("Failed to add expense. Please try again.");
             setLoading(false);
-        } else {
-            navigate(`/g/${groupId}`);
         }
     };
 
@@ -110,9 +162,9 @@ export default function AddExpense() {
                             Paid By
                         </label>
 
-                        {loadingPayers ? (
+                        {loadingMembers ? (
                             <div className="h-10 w-full bg-gray-100 rounded-lg animate-pulse"></div>
-                        ) : !isCustomPayer && existingPayers.length > 0 ? (
+                        ) : !isCustomPayer && groupMembers.length > 0 ? (
                             <div className="space-y-2">
                                 <select
                                     id="payerName"
@@ -129,7 +181,7 @@ export default function AddExpense() {
                                     required
                                 >
                                     <option value="" disabled>Select a person</option>
-                                    {existingPayers.map(p => (
+                                    {groupMembers.map(p => (
                                         <option key={p} value={p}>{p}</option>
                                     ))}
                                     <option value="__NEW__">+ Add new person...</option>
@@ -142,12 +194,13 @@ export default function AddExpense() {
                                     id="payerName"
                                     value={payerName}
                                     onChange={(e) => setPayerName(e.target.value)}
+                                    onBlur={handleCustomPayerBlur}
                                     placeholder="Enter name"
                                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
                                     required
                                     autoFocus={isCustomPayer}
                                 />
-                                {existingPayers.length > 0 && (
+                                {groupMembers.length > 0 && (
                                     <button
                                         type="button"
                                         onClick={() => setIsCustomPayer(false)}
@@ -159,6 +212,51 @@ export default function AddExpense() {
                             </div>
                         )}
                     </div>
+
+                    {groupMembers.length > 0 && (
+                        <div>
+                            <div className="flex justify-between items-center mb-2">
+                                <label className="block text-sm font-medium text-gray-700">
+                                    Split Among
+                                </label>
+                                <div className="space-x-2">
+                                    <button
+                                        type="button"
+                                        onClick={selectAll}
+                                        className="text-xs text-blue-600 hover:underline"
+                                    >
+                                        Select All
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={deselectAll}
+                                        className="text-xs text-gray-600 hover:underline"
+                                    >
+                                        Deselect All
+                                    </button>
+                                </div>
+                            </div>
+                            <div className="border border-gray-300 rounded-lg p-3 space-y-2 max-h-48 overflow-y-auto">
+                                {groupMembers.map(member => (
+                                    <label
+                                        key={member}
+                                        className="flex items-center space-x-2 cursor-pointer hover:bg-gray-50 p-2 rounded"
+                                    >
+                                        <input
+                                            type="checkbox"
+                                            checked={splitAmong.includes(member)}
+                                            onChange={() => toggleSplitMember(member)}
+                                            className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                        />
+                                        <span className="text-sm text-gray-700">{member}</span>
+                                    </label>
+                                ))}
+                            </div>
+                            <p className="text-xs text-gray-500 mt-1">
+                                {splitAmong.length} {splitAmong.length === 1 ? 'person' : 'people'} selected
+                            </p>
+                        </div>
+                    )}
 
                     <button
                         type="submit"
