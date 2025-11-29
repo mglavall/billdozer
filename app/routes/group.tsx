@@ -183,23 +183,12 @@ export default function GroupView() {
                         </button>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4 mb-6">
-                        <div className="bg-blue-50 p-4 rounded-lg">
-                            <p className="text-sm text-blue-600 font-medium">Total Expenses</p>
-                            <p className="text-2xl font-bold text-blue-900">{totalExpenses.toFixed(2)}€</p>
-                        </div>
-                        {allPeople.length > 0 && (
-                            <div className="bg-green-50 p-4 rounded-lg">
-                                <p className="text-sm text-green-600 font-medium">Split per Person</p>
-                                <p className="text-2xl font-bold text-green-900">
-                                    {splitAmount.toFixed(2)}€
-                                    <span className="text-xs font-normal text-green-700 ml-1">
-                                        ({allPeople.length} people)
-                                    </span>
-                                </p>
-                            </div>
-                        )}
+
+                    <div className="bg-blue-50 p-4 rounded-lg mb-4">
+                        <p className="text-sm text-blue-600 font-medium">Total Expenses</p>
+                        <p className="text-2xl font-bold text-blue-900">{totalExpenses.toFixed(2)}€</p>
                     </div>
+
 
                     {settlements.length > 0 && (
                         <div className="mb-6 bg-yellow-50 p-4 rounded-lg border border-yellow-100">
