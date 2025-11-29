@@ -10,6 +10,35 @@ export default function AddExpense() {
     const [payerName, setPayerName] = useState("");
     const [loading, setLoading] = useState(false);
 
+    // New state for payer selection
+    const [existingPayers, setExistingPayers] = useState<string[]>([]);
+    const [isCustomPayer, setIsCustomPayer] = useState(false);
+    const [loadingPayers, setLoadingPayers] = useState(true);
+
+    // Fetch existing payers on mount
+    useState(() => {
+        async function fetchPayers() {
+            if (!groupId) return;
+            const { data, error } = await supabase
+                .from("expenses")
+                .select("payer_name")
+                .eq("group_id", groupId);
+
+            if (!error && data) {
+                const uniquePayers = Array.from(new Set(data.map(d => d.payer_name))).sort();
+                setExistingPayers(uniquePayers);
+                // If we have payers, default to the first one? Or empty?
+                // Let's default to empty so they have to choose, or first one if convenient.
+                // If no payers, we must use custom input.
+                if (uniquePayers.length === 0) {
+                    setIsCustomPayer(true);
+                }
+            }
+            setLoadingPayers(false);
+        }
+        fetchPayers();
+    });
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!groupId || !description || !amount || !payerName) return;
@@ -61,7 +90,7 @@ export default function AddExpense() {
 
                     <div>
                         <label htmlFor="amount" className="block text-sm font-medium text-gray-700 mb-1">
-                            Amount ($)
+                            Amount (€)
                         </label>
                         <input
                             type="number"
@@ -80,15 +109,55 @@ export default function AddExpense() {
                         <label htmlFor="payerName" className="block text-sm font-medium text-gray-700 mb-1">
                             Paid By
                         </label>
-                        <input
-                            type="text"
-                            id="payerName"
-                            value={payerName}
-                            onChange={(e) => setPayerName(e.target.value)}
-                            placeholder="Your Name"
-                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                            required
-                        />
+
+                        {loadingPayers ? (
+                            <div className="h-10 w-full bg-gray-100 rounded-lg animate-pulse"></div>
+                        ) : !isCustomPayer && existingPayers.length > 0 ? (
+                            <div className="space-y-2">
+                                <select
+                                    id="payerName"
+                                    value={payerName}
+                                    onChange={(e) => {
+                                        if (e.target.value === "__NEW__") {
+                                            setIsCustomPayer(true);
+                                            setPayerName("");
+                                        } else {
+                                            setPayerName(e.target.value);
+                                        }
+                                    }}
+                                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all bg-white"
+                                    required
+                                >
+                                    <option value="" disabled>Select a person</option>
+                                    {existingPayers.map(p => (
+                                        <option key={p} value={p}>{p}</option>
+                                    ))}
+                                    <option value="__NEW__">+ Add new person...</option>
+                                </select>
+                            </div>
+                        ) : (
+                            <div className="space-y-2">
+                                <input
+                                    type="text"
+                                    id="payerName"
+                                    value={payerName}
+                                    onChange={(e) => setPayerName(e.target.value)}
+                                    placeholder="Enter name"
+                                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                                    required
+                                    autoFocus={isCustomPayer}
+                                />
+                                {existingPayers.length > 0 && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsCustomPayer(false)}
+                                        className="text-sm text-blue-600 hover:underline"
+                                    >
+                                        Select existing person
+                                    </button>
+                                )}
+                            </div>
+                        )}
                     </div>
 
                     <button

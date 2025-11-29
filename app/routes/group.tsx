@@ -27,6 +27,7 @@ export default function GroupView() {
     const [expenses, setExpenses] = useState<Expense[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [copied, setCopied] = useState(false);
 
     useEffect(() => {
         async function fetchGroupData() {
@@ -62,6 +63,12 @@ export default function GroupView() {
 
         fetchGroupData();
     }, [groupId]);
+
+    const copyToClipboard = () => {
+        navigator.clipboard.writeText(window.location.href);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    };
 
     if (loading) return <div className="p-8 text-center">Loading...</div>;
     if (error) return <div className="p-8 text-center text-red-600">Error: {error}</div>;
@@ -132,7 +139,23 @@ export default function GroupView() {
                 <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
                     <div className="flex justify-between items-center mb-4">
                         <h1 className="text-2xl font-bold text-gray-900">{group.name}</h1>
-                        <Link to="/" className="text-sm text-blue-600 hover:underline">Home</Link>
+                        <button
+                            onClick={copyToClipboard}
+                            className="text-sm text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1 transition-colors"
+                        >
+                            {copied ? (
+                                <>
+                                    <span className="text-green-600 font-bold">✓ Copied!</span>
+                                </>
+                            ) : (
+                                <>
+                                    <span>Share Group</span>
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 01-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 011.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 00-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 01-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 00-3.375-3.375h-1.5" />
+                                    </svg>
+                                </>
+                            )}
+                        </button>
                     </div>
 
                     <div className="grid grid-cols-2 gap-4 mb-6">
