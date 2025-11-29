@@ -15,6 +15,12 @@ interface Group {
     name: string;
 }
 
+interface Settlement {
+    from: string;
+    to: string;
+    amount: number;
+}
+
 export default function GroupView() {
     const { groupId } = useParams();
     const [group, setGroup] = useState<Group | null>(null);
@@ -62,16 +68,63 @@ export default function GroupView() {
     if (!group) return <div className="p-8 text-center">Group not found</div>;
 
     const totalExpenses = expenses.reduce((sum, expense) => sum + expense.amount, 0);
-
-    // Calculate balances (simplified: total / unique payers? No, usually total / total participants)
-    // Since we don't have a fixed list of participants, we can infer them from payers or just show a list of who paid what.
-    // For a simple "no accounts" app, maybe just showing who paid what and the total is enough for now, 
-    // or we can assume everyone involved is in the list of payers?
-    // Let's just list expenses and total for now, as "splitting" implies knowing who is involved.
-    // We can add a "Participants" feature later if needed, or just assume unique payers are the participants.
-
     const payers = Array.from(new Set(expenses.map(e => e.payer_name)));
     const splitAmount = payers.length > 0 ? totalExpenses / payers.length : 0;
+
+    const calculateSettlements = (): Settlement[] => {
+        if (payers.length === 0) return [];
+
+        const balances: Record<string, number> = {};
+        payers.forEach(payer => balances[payer] = 0);
+
+        expenses.forEach(expense => {
+            if (!balances[expense.payer_name]) balances[expense.payer_name] = 0;
+            balances[expense.payer_name] += expense.amount;
+        });
+
+        // Subtract fair share
+        payers.forEach(payer => {
+            balances[payer] -= splitAmount;
+        });
+
+        const debtors: { name: string; amount: number }[] = [];
+        const creditors: { name: string; amount: number }[] = [];
+
+        Object.entries(balances).forEach(([name, amount]) => {
+            if (amount < -0.01) debtors.push({ name, amount }); // Negative balance means they owe money
+            if (amount > 0.01) creditors.push({ name, amount }); // Positive balance means they are owed money
+        });
+
+        debtors.sort((a, b) => a.amount - b.amount);
+        creditors.sort((a, b) => b.amount - a.amount);
+
+        const settlements: Settlement[] = [];
+        let i = 0; // debtor index
+        let j = 0; // creditor index
+
+        while (i < debtors.length && j < creditors.length) {
+            const debtor = debtors[i];
+            const creditor = creditors[j];
+
+            const amount = Math.min(Math.abs(debtor.amount), creditor.amount);
+
+            settlements.push({
+                from: debtor.name,
+                to: creditor.name,
+                amount: amount
+            });
+
+            debtor.amount += amount;
+            creditor.amount -= amount;
+
+            if (Math.abs(debtor.amount) < 0.01) i++;
+            if (creditor.amount < 0.01) j++;
+        }
+
+        return settlements;
+    };
+
+    const settlements = calculateSettlements();
 
     return (
         <div className="min-h-screen bg-gray-50 p-4">
@@ -85,20 +138,36 @@ export default function GroupView() {
                     <div className="grid grid-cols-2 gap-4 mb-6">
                         <div className="bg-blue-50 p-4 rounded-lg">
                             <p className="text-sm text-blue-600 font-medium">Total Expenses</p>
-                            <p className="text-2xl font-bold text-blue-900">${totalExpenses.toFixed(2)}</p>
+                            <p className="text-2xl font-bold text-blue-900">{totalExpenses.toFixed(2)}€</p>
                         </div>
                         {payers.length > 0 && (
                             <div className="bg-green-50 p-4 rounded-lg">
                                 <p className="text-sm text-green-600 font-medium">Split per Person</p>
                                 <p className="text-2xl font-bold text-green-900">
-                                    ${splitAmount.toFixed(2)}
+                                    {splitAmount.toFixed(2)}€
                                     <span className="text-xs font-normal text-green-700 ml-1">
-                                        (assuming {payers.length} people)
+                                        ({payers.length} people)
                                     </span>
                                 </p>
                             </div>
                         )}
                     </div>
+
+                    {settlements.length > 0 && (
+                        <div className="mb-6 bg-yellow-50 p-4 rounded-lg border border-yellow-100">
+                            <h3 className="text-lg font-semibold text-yellow-900 mb-3">Settlements</h3>
+                            <ul className="space-y-2">
+                                {settlements.map((s, idx) => (
+                                    <li key={idx} className="flex items-center text-yellow-800">
+                                        <span className="font-medium">{s.from}</span>
+                                        <span className="mx-2 text-yellow-600">owes</span>
+                                        <span className="font-medium">{s.to}</span>
+                                        <span className="ml-auto font-bold">{s.amount.toFixed(2)}€</span>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
 
                     <div className="flex justify-between items-center">
                         <p className="text-sm text-gray-500">
@@ -128,7 +197,7 @@ export default function GroupView() {
                                             <p className="font-medium text-gray-900">{expense.description}</p>
                                             <p className="text-sm text-gray-500">Paid by {expense.payer_name}</p>
                                         </div>
-                                        <span className="font-bold text-gray-900">${expense.amount.toFixed(2)}</span>
+                                        <span className="font-bold text-gray-900">{expense.amount.toFixed(2)}€</span>
                                     </div>
                                 </li>
                             ))}
